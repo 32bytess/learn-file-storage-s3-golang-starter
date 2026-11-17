@@ -88,11 +88,30 @@ func (cfg *apiConfig) handlerVideoGet(w http.ResponseWriter, r *http.Request) {
 		respondWithError(w, http.StatusBadRequest, "Invalid video ID", err)
 		return
 	}
+	token, err := auth.GetBearerToken(r.Header)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "Invalid Token", err)
+		return
+	}
+	userID, err := auth.ValidateJWT(token, cfg.jwtSecret)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "Invalid Token", err)
+		return
+	}
 
 	video, err := cfg.db.GetVideo(videoID)
 	if err != nil {
 		respondWithError(w, http.StatusNotFound, "Couldn't get video", err)
 		return
+	}
+
+	if video.UserID != userID {
+		respondWithError(w, http.StatusNotFound, "Couldn't get video", nil)
+		return
+	}
+	video, err = cfg.dbVideoToSignedVideo(video)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Couldnt sign Vid", err)
 	}
 
 	respondWithJSON(w, http.StatusOK, video)
@@ -116,5 +135,12 @@ func (cfg *apiConfig) handlerVideosRetrieve(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	for i := range videos {
+		videos[i], err = cfg.dbVideoToSignedVideo(videos[i])
+		if err != nil {
+			respondWithError(w, http.StatusInternalServerError, "couldnt presignVideos", err)
+			return
+		}
+	}
 	respondWithJSON(w, http.StatusOK, videos)
 }

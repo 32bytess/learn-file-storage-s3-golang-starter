@@ -33,12 +33,13 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		respondWithError(w, http.StatusUnauthorized, "Invalid JWT token", err)
 		return
 	}
-	metadata, err := cfg.db.GetVideo(videoID)
+
+	video, err := cfg.db.GetVideo(videoID)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Couldn't get the Video metadata", err)
 		return
 	}
-	if metadata.UserID != userID {
+	if video.UserID != userID {
 		respondWithError(w, http.StatusUnauthorized, "Unauthorized request", err)
 		return
 	}
@@ -69,10 +70,6 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		respondWithError(w, http.StatusInternalServerError, "Error Saving Temp File", err)
 		return
 	}
-	if _, err = tempFile.Seek(0, io.SeekStart); err != nil {
-		respondWithError(w, http.StatusInternalServerError, "Unable to reset Temp File pointer", err)
-		return
-	}
 	aspectRatio, err := getVideoAspectRatio(tempFile.Name())
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Unable to get aspectRatio", err)
@@ -91,6 +88,7 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 	b := make([]byte, 32)
 	rand.Read(b)
 	fileName := fmt.Sprintf("%s/%s.mp4", prefix, base64.RawURLEncoding.EncodeToString(b))
+
 	processingFilePath, err := processVideoForFastStart(tempFile.Name())
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Unable to process video", err)
@@ -115,12 +113,17 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		respondWithError(w, http.StatusInternalServerError, "Unable to upload vid to s3", err)
 		return
 	}
-	vidURL := fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", cfg.s3Bucket, cfg.s3Region, fileName)
-	metadata.VideoURL = &vidURL
-	if err = cfg.db.UpdateVideo(metadata); err != nil {
+
+	videoURL := fmt.Sprintf("%s,%s", cfg.s3Bucket, fileName)
+	video.VideoURL = &videoURL
+	if err = cfg.db.UpdateVideo(video); err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Something went wrong", err)
 		return
 	}
-
-	respondWithJSON(w, http.StatusOK, metadata)
+	signedVideo, err := cfg.dbVideoToSignedVideo(video)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Couldnt create presigned vid", err)
+		return
+	}
+	respondWithJSON(w, http.StatusOK, signedVideo)
 }
