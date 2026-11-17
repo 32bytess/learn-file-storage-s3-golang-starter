@@ -73,9 +73,24 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		respondWithError(w, http.StatusInternalServerError, "Unable to reset Temp File pointer", err)
 		return
 	}
+	aspectRatio, err := getVideoAspectRatio(tempFile.Name())
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Unable to get aspectRatio", err)
+		return
+	}
+	prefix := func() string {
+		switch aspectRatio {
+		case "16:9":
+			return "landscape"
+		case "9:16":
+			return "portrait"
+		default:
+			return "other"
+		}
+	}()
 	b := make([]byte, 32)
 	rand.Read(b)
-	fileName := base64.RawURLEncoding.EncodeToString(b) + ".mp4"
+	fileName := fmt.Sprintf("%s/%s.mp4", prefix, base64.RawURLEncoding.EncodeToString(b))
 	_, err = cfg.s3Client.PutObject(r.Context(), &s3.PutObjectInput{
 		Bucket:      &cfg.s3Bucket,
 		Key:         &fileName,
